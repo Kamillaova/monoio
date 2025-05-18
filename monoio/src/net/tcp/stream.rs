@@ -119,9 +119,9 @@ impl TcpStream {
             SocketAddr::V4(_) => AF_INET,
             SocketAddr::V6(_) => AF_INET6,
         };
-        
+
         let socket_completion = Op::socket(domain, SOCK_STREAM)?.await;
-        let socket = socket_completion.meta.result?.fd();
+        let socket = socket_completion.meta.result?.fd() as libc::c_int;
 
         let completion = Op::connect(SharedFd::new::<false>(socket)?, addr)?.await;
         completion.meta.result?;
