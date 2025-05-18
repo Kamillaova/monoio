@@ -119,60 +119,17 @@ impl TcpStream {
             SocketAddr::V4(_) => AF_INET,
             SocketAddr::V6(_) => AF_INET6,
         };
-        let socket = crate::net::new_socket(domain, SOCK_STREAM)?;
-        #[allow(unused_mut)]
-        let mut tfo = opts.tcp_fast_open;
+        
+        let socket_completion = Op::socket(domain, SOCK_STREAM)?.await;
+        let socket = socket_completion.meta.result?.fd();
 
-        if tfo {
-            #[cfg(any(target_os = "linux", target_os = "android"))]
-            super::tfo::try_set_tcp_fastopen_connect(&socket);
-            #[cfg(any(target_os = "ios", target_os = "macos"))]
-            // if we cannot set force tcp fastopen, we will not use it.
-            if super::tfo::set_tcp_fastopen_force_enable(&socket).is_err() {
-                tfo = false;
-            }
-        }
-        let completion = Op::connect(SharedFd::new::<false>(socket)?, addr, tfo)?.await;
+        let completion = Op::connect(SharedFd::new::<false>(socket)?, addr)?.await;
         completion.meta.result?;
 
         let stream = TcpStream::from_shared_fd(completion.data.fd);
         // wait write ready on epoll branch
         if crate::driver::op::is_legacy() {
-            #[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "legacy"))]
-            if !tfo {
-                stream.writable(true).await?;
-            } else {
-                // set writable as init state
-                crate::driver::CURRENT.with(|inner| match inner {
-                    crate::driver::Inner::Legacy(inner) => {
-                        let idx = stream.fd.registered_index().unwrap();
-                        if let Some(mut readiness) =
-                            unsafe { &mut *inner.get() }.io_dispatch.get(idx)
-                        {
-                            readiness.set_writable();
-                        }
-                    }
-                    #[allow(unreachable_patterns)]
-                    _ => unreachable!("should never happens"),
-                })
-            }
-            #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-            stream.writable(true).await?;
-
-            // getsockopt libc::SO_ERROR
-            #[cfg(unix)]
-            let sys_socket = unsafe { std::net::TcpStream::from_raw_fd(stream.fd.raw_fd()) };
-            #[cfg(windows)]
-            let sys_socket =
-                unsafe { std::net::TcpStream::from_raw_socket(stream.fd.raw_socket()) };
-            let err = sys_socket.take_error();
-            #[cfg(unix)]
-            let _ = sys_socket.into_raw_fd();
-            #[cfg(windows)]
-            let _ = sys_socket.into_raw_socket();
-            if let Some(e) = err? {
-                return Err(e);
-            }
+            panic!("legacy is not supported");
         }
         Ok(stream)
     }

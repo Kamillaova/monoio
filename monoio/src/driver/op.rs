@@ -35,6 +35,7 @@ mod symlink;
 
 #[cfg(all(target_os = "linux", feature = "splice"))]
 mod splice;
+mod socket;
 
 /// In-flight operation
 pub(crate) struct Op<T: 'static + OpAble> {
